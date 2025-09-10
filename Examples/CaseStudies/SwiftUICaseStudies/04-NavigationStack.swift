@@ -71,7 +71,10 @@ struct NavigationDemoView: View {
   @Bindable var store: StoreOf<NavigationDemo>
 
   var body: some View {
-    NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
+    NavigationStack(
+      path: $store.scope(
+        state: \.path, action: \.path)
+    ) {
       Form {
         Section { Text(template: readMe) }
 
@@ -106,7 +109,7 @@ struct NavigationDemoView: View {
       case let .screenC(store):
         ScreenCView(store: store)
       }
-    }
+    } canStoreCacheChildren: { false }
     .safeAreaInset(edge: .bottom) {
       FloatingMenuView(store: store)
     }
@@ -184,6 +187,7 @@ struct ScreenA {
     var count = 0
     var fact: String?
     var isLoading = false
+    let tracker = DeinitTracker(screenName: "ScreenA")
   }
 
   enum Action {
@@ -216,7 +220,8 @@ struct ScreenA {
       case .factButtonTapped:
         state.isLoading = true
         return .run { [count = state.count] send in
-          await send(.factResponse(Result { try await self.factClient.fetch(count) }))
+          await send(
+            .factResponse(Result { try await self.factClient.fetch(count) }))
         }
 
       case let .factResponse(.success(fact)):
@@ -290,7 +295,8 @@ struct ScreenAView: View {
       Section {
         NavigationLink(
           "Go to screen A",
-          state: NavigationDemo.Path.State.screenA(ScreenA.State(count: store.count))
+          state: NavigationDemo.Path.State.screenA(
+            ScreenA.State(count: store.count))
         )
         NavigationLink(
           "Go to screen B",
@@ -298,7 +304,8 @@ struct ScreenAView: View {
         )
         NavigationLink(
           "Go to screen C",
-          state: NavigationDemo.Path.State.screenC(ScreenC.State(count: store.count))
+          state: NavigationDemo.Path.State.screenC(
+            ScreenC.State(count: store.count))
         )
       }
     }
@@ -311,7 +318,9 @@ struct ScreenAView: View {
 @Reducer
 struct ScreenB {
   @ObservableState
-  struct State: Equatable {}
+  struct State: Equatable {
+    let tracker = DeinitTracker(screenName: "ScreenB")
+  }
 
   enum Action {
     case screenAButtonTapped
@@ -367,6 +376,7 @@ struct ScreenBView: View {
 struct ScreenC {
   @ObservableState
   struct State: Equatable {
+    let tracker = DeinitTracker(screenName: "ScreenC")
     var count = 0
     var isTimerRunning = false
   }
@@ -428,7 +438,8 @@ struct ScreenCView: View {
       Section {
         NavigationLink(
           "Go to screen A",
-          state: NavigationDemo.Path.State.screenA(ScreenA.State(count: store.count))
+          state: NavigationDemo.Path.State.screenA(
+            ScreenA.State(count: store.count))
         )
         NavigationLink(
           "Go to screen B",
@@ -452,4 +463,36 @@ struct ScreenCView: View {
       NavigationDemo()
     }
   )
+}
+
+
+
+/// A helper class to track the lifecycle of an object (e.g., a TCA State, ViewModel, or any class instance)
+/// to easily detect memory leaks.
+///
+/// Place an instance of this class as a property within the object you want to track.
+public final class DeinitTracker: Sendable, Equatable {
+  public let id = UUID()
+
+  /// The name of the screen or feature being tracked, used for logging.
+  public let screenName: String
+
+  /// Initializes the tracker and logs the creation ("INIT") event to the console.
+  /// - Parameter screenName: The name of the screen or component being tracked.
+  public init(screenName: String) {
+    self.screenName = screenName
+    print("✅ \(screenName) \(id): INIT")
+  }
+
+  /// This method is called automatically when the object is about to be deallocated from memory.
+  /// It logs a "DEINIT" message to the console.
+  ///
+  /// **If you do not see this message after a screen is dismissed or an object should have been released, you have a memory leak.**
+  deinit {
+    print("❌ \(screenName) \(id): DEINIT - SUCCESSFULLY DEALLOCATED!")
+  }
+
+  public static func == (rhs: DeinitTracker, lhs: DeinitTracker) -> Bool {
+    rhs.screenName == lhs.screenName && rhs.id == lhs.id
+  }
 }

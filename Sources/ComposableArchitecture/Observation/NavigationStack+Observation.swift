@@ -153,6 +153,7 @@ extension NavigationStack {
     path: Binding<Store<StackState<State>, StackAction<State, Action>>>,
     @ViewBuilder root: () -> R,
     @ViewBuilder destination: @escaping (Store<State, Action>) -> Destination,
+    canStoreCacheChildren: () -> Bool = { true },
     fileID: StaticString = #fileID,
     filePath: StaticString = #filePath,
     line: UInt = #line,
@@ -175,6 +176,7 @@ extension NavigationStack {
           _NavigationDestinationViewModifier(
             store: path.wrappedValue,
             destination: destination,
+            canStoreCacheChildren: canStoreCacheChildren(),
             fileID: fileID,
             filePath: filePath,
             line: line,
@@ -193,6 +195,7 @@ public struct _NavigationDestinationViewModifier<
 {
   @SwiftUI.State var store: Store<StackState<State>, StackAction<State, Action>>
   fileprivate let destination: (Store<State, Action>) -> Destination
+  fileprivate var canStoreCacheChildren: Bool? = nil
   fileprivate let fileID: StaticString
   fileprivate let filePath: StaticString
   fileprivate let line: UInt
@@ -204,7 +207,7 @@ public struct _NavigationDestinationViewModifier<
       .navigationDestination(for: StackState<State>.Component.self) { component in
         destination(
           store.scope(
-            component: component, fileID: fileID, filePath: filePath, line: line, column: column)
+            component: component, canStoreCacheChildren: canStoreCacheChildren, fileID: fileID, filePath: filePath, line: line, column: column)
         )
         .environment(\.navigationDestinationType, State.self)
       }
@@ -213,6 +216,47 @@ public struct _NavigationDestinationViewModifier<
 
 @_spi(Internals)
 extension Store {
+  public func scope<ChildState, ChildAction>(
+    component: StackState<ChildState>.Component,
+    canStoreCacheChildren: Bool? = nil,
+    fileID: StaticString = #fileID,
+    filePath: StaticString = #filePath,
+    line: UInt = #line,
+    column: UInt = #column
+  ) -> Store<ChildState, ChildAction>
+  where State == StackState<ChildState>, Action == StackAction<ChildState, ChildAction> {
+    let id = self.id(
+      state:
+        \.[
+          id: component.id,
+          fileID: _HashableStaticString(rawValue: fileID),
+          filePath: _HashableStaticString(rawValue: filePath),
+          line: line,
+          column: column
+        ],
+      action: \.[id: component.id]
+    )
+    @MainActor
+    func open(
+      _ core: some Core<StackState<ChildState>, StackAction<ChildState, ChildAction>>
+    ) -> any Core<ChildState, ChildAction> {
+      IfLetCore(
+        base: core,
+        cachedState: component.element,
+        stateKeyPath:
+          \.[
+            id: component.id,
+            fileID: _HashableStaticString(rawValue: fileID),
+            filePath: _HashableStaticString(rawValue: filePath),
+            line: line,
+            column: column
+          ],
+        actionKeyPath: \.[id: component.id]
+      )
+    }
+    return self.scope(id: id, canStoreCacheChildren: canStoreCacheChildren, childCore: open(self.core))
+  }
+  
   public func scope<ChildState, ChildAction>(
     component: StackState<ChildState>.Component,
     fileID: StaticString = #fileID,

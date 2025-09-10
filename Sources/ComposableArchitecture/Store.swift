@@ -288,6 +288,39 @@ public final class Store<State, Action>: _Store {
     }
     return child
   }
+  
+  public func scope<ChildState, ChildAction>(
+    state: KeyPath<State, ChildState>,
+    action: CaseKeyPath<Action, ChildAction>,
+    canStoreCacheChildren: Bool
+  ) -> Store<ChildState, ChildAction> {
+    func open(_ core: some Core<State, Action>) -> any Core<ChildState, ChildAction> {
+      ScopedCore(base: core, stateKeyPath: state, actionKeyPath: action)
+    }
+    return scope(
+      id: id(state: state, action: action), canStoreCacheChildren: canStoreCacheChildren,
+      childCore: open(core))
+  }
+
+  func scope<ChildState, ChildAction>(
+    id: ScopeID<State, Action>?,
+    canStoreCacheChildren: Bool?,
+    childCore: @autoclosure () -> any Core<ChildState, ChildAction>
+  ) -> Store<ChildState, ChildAction> {
+    let _canStoreCacheChildren = canStoreCacheChildren ?? core.canStoreCacheChildren
+    guard
+      _canStoreCacheChildren,
+      let id,
+      let child = children[id] as? Store<ChildState, ChildAction>
+    else {
+      let child = Store<ChildState, ChildAction>(core: childCore(), scopeID: id, parent: self)
+      if _canStoreCacheChildren, let id {
+        children[id] = child
+      }
+      return child
+    }
+    return child
+  }
 
   @available(
     *,
